@@ -1,0 +1,16 @@
+(19|20)\d\d([- /.])(0[1-9]|1[012])\2(0[1-9]|[12][0-9]|3[01])<===>searching Date : yyyy/mm/dd from 1900s-2099s<===>DATE_WITH_FORMAT
+(\d\d\d\d)([- /.])(0[1-9]|1[012])\2(0[1-9]|[12][0-9]|3[01])<===>searching any date<===>ANY_DATE
+[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+<===>e-mail addresses<===>EMAIL_ADDRESSES
+^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+$<===>line starts and ends with e-mail address<===>LINE_ONLY_WITH_EMAIL
+^d{1,2}[^a-zA-Z]*m{1,2}[^a-z]*y+[^mdy]*$<===>regex for date in dd-mm-yy or d-m-y or other possible situations (replace d,m,y in regex with integers of choice for limiting date selection and replace a-z,A-Z with 0-9 or numbers of choice for detecting integers)<===>DD_MM_YY
+^m{1,2}[^a-zA-Z]*d{1,2}[^a-z]*y+[^mdy]*$<===>regex for date in mm-dd-yy or m-d-y or other possible situations (replace d,m,y in regex with integers of choice for limiting date selection and replace a-z,A-Z with 0-9 or numbers of choice for detecting integers)<===>MM_DD_YY
+^y+[^a-zA-Z]*m{1,2}[^a-z]*d{1,2}[^mdy]*$<===>regex for date in yy-mm-dd or y-m-d or other possible situations (replace d,m,y in regex with integers of choice for limiting date selection and replace a-z,A-Z with 0-9 or numbers of choice for detecting integers)<===>YY_MM_DD
+(0x|0X)\S[a-fA-F0-9]+<===>for finding hexadecimal values<===>HEX_VALS
+((0x|0X)\S[a-fA-F0-9]{1,7})+<===>for finding hexadecimal values with limits defined (example: if limit is {1,7} then maximum possible number is 0xffffffff). The ending limit is number of characters after `0x` plus the first character<===>HEX_VALS_LIMIT
+[-+]?(?:\b[0-9]+(?:\.[0-9]*)?|\.[0-9]+\b)(?:[eE][-+]?[0-9]+\b)?<===>for finding numbers<===>NUMBERS
+^[a-zA-Z]:\\[\\\S|*\S]?.*$<===>line starting and ending with Windows File/Folder path<===>LINE_ONLY_WITH_WIN_FILE_FOLDER_PATH
+(?:[a-zA-Z]\:|\\\\[\w\.]+\\[\w\.\x20]+)\\(?:[\w\x20]+\\)*\w([\w\.\x20])+<===>matches windows file and folder paths containing spaces<===>WIN_FILE_FOLDER_PATH
+(?:[a-zA-Z]\:|\\\\[\w\.]+\\[\w.$]+)\\(?:[\w]+\\)*\w([\w.])+<===>matches windows file and folder paths which do not contain spaces<===>WIN_FILE_FOLDER_PATH_WITHOUT_SPACES
+([0-9a-fA-F][0-9a-fA-F](:|-)){5}([0-9a-fA-F][0-9a-fA-F])<===>for matching Media Access Control (MAC) addresses<===>MAC_ADDR
+(?i:(?=[MDCLXVI])((M{0,3})((C[DM])|(D?C{0,3}))?((X[LC])|(L?XX{0,2})|L)?((I[VX])|(V?(II{0,2}))|V)?))<===>for matching Roman numbers<===>ROMAN_NUMS
+^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$<===>for matching UUIDs<===>UUID
