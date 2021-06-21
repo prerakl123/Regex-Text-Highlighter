@@ -80,7 +80,7 @@ class Window(Tk):
 
     def __init__(self):
         Tk.__init__(self)
-        # self.protocol('WM_DELETE_WINDOW', self._save_on_close)
+        self.protocol('WM_DELETE_WINDOW', self._save_on_close)
 
         self.buttons_frame = Frame(self)
         self.refresh_btn = Button(self.buttons_frame, text='Refresh', font=font, command=self._refresh, relief=GROOVE)
@@ -134,12 +134,17 @@ class Window(Tk):
     def _save_on_close(self):
         line_list = []
         for frame in self.FRAME_LIST:
-            line = '<===>'.join([frame.regex_entry.get(1.0, END), frame.description_entry.get(1.0, END),
-                                 frame.value_entry.get(1.0, END)])
+            line_elements = [frame.regex_entry.get(1.0, END).rstrip('\n').rstrip(),
+                             frame.description_entry.get(1.0, END).rstrip('\n').rstrip(),
+                             frame.value_entry.get(1.0, END).rstrip('\n').rstrip()]
+            if '' in line_elements:
+                continue
+            line = '<===>'.join(line_elements)
             line_list.append(line)
         file = '\n'.join(line_list)
         with open('REGEX-History', 'w') as regex_file:
-            regex_file.write(file)
+            regex_file.write(file + '\n')
+        exit()
 
     def _update(self, event=None):
         for frame, i in zip(self.FRAME_LIST, [_int for _int in range(len(self.FRAME_LIST))]):
