@@ -10,4 +10,4 @@
 (?:[a-zA-Z]\:|\\\\[\w\.]+\\[\w.$]+)\\(?:[\w]+\\)*\w([\w.])+<===>matches windows file and folder paths which do not contain spaces<===>WIN_FILE_FOLDER_PATH_WITHOUT_SPACES
 ([0-9a-fA-F][0-9a-fA-F](:|-)){5}([0-9a-fA-F][0-9a-fA-F])<===>for matching Media Access Control (MAC) addresses<===>MAC_ADDR
 (?i:(?=[MDCLXVI])((M{0,3})((C[DM])|(D?C{0,3}))?((X[LC])|(L?XX{0,2})|L)?((I[VX])|(V?(II{0,2}))|V)?))<===>for matching Roman numbers<===>ROMAN_NUMS
-^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$<===>for matching UUIDs<===>UUID
+^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$<===>for matching universally unique identifier (UUIDs)<===>UUID

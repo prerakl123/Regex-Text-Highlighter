@@ -31,6 +31,24 @@ button_config = {
 }
 
 
+def center_window(win: Tk or Toplevel):
+    """
+    centers a tkinter window
+    :param win: the main window or Toplevel window to center
+    """
+    win.update_idletasks()
+    width = win.winfo_width()
+    frm_width = win.winfo_rootx() - win.winfo_x()
+    win_width = width + 2 * frm_width
+    height = win.winfo_height()
+    titlebar_height = win.winfo_rooty() - win.winfo_y()
+    win_height = height + titlebar_height + frm_width
+    x = win.winfo_screenwidth() // 2 - win_width // 2
+    y = win.winfo_screenheight() // 2 - win_height // 2
+    win.geometry('+{}+{}'.format(x, y))
+    win.deiconify()
+
+
 class ScrollableFrame(LabelFrame):
     def __init__(self, master, **kw):
         LabelFrame.__init__(self, master, **kw)
@@ -105,6 +123,19 @@ class RegexFrame(Frame):
         # self.description_entry.bind('<FocusOut>', updatefunc)
         # self.regex_entry.bind('<FocusOut>', updatefunc)
         self.bind('<FocusOut>', updatefunc)
+
+
+class RegexEditingFrame(LabelFrame):
+    def __init__(self, master, frame, description: bool, **kw):
+        LabelFrame.__init__(self, master, **kw)
+        self.text = ScrolledText(self, font=font, **text_config)
+
+        if description:
+            self.text.insert(1.0, frame.description_entry.get(1.0, END))
+        else:
+            self.text.insert(1.0, frame.regex_entry.get(1.0, END))
+
+        self.text.pack(expand=True, fill=BOTH, padx=1, pady=1)
 
 
 class RegexTextArea(ScrolledText):
@@ -398,6 +429,45 @@ class RegexTextArea(ScrolledText):
         pass
 
 
+class RegexAndDescriptionWindow(Toplevel):
+    def __init__(self, master, frame_list: list, value_list: list, description=False, **kw):
+        Toplevel.__init__(self, master, **kw)
+        self.transient(master)
+        self.geometry('700x625')
+        self.resizable(False, False)
+        self.protocol('WM_DELETE_WINDOW', self._save_on_close)
+
+        self.frame_list = frame_list
+        self.value_list = value_list
+        self.description = description
+
+        self.edit_frame_list = []
+
+        self.frame = ScrollableFrame(self, **frame_config)
+        self.widget_frame = self.frame.widget_frame
+        self.frame.pack(side=TOP, fill=BOTH, expand=True, padx=3, pady=2)
+
+        self._insert_description_texts()
+
+    def _insert_description_texts(self):
+        for frame, value in zip(self.frame_list, self.value_list):
+            rdf = RegexEditingFrame(self.widget_frame, frame, self.description, text=f" {value} ", **label_frame_config)
+            rdf.pack(side=TOP, expand=True, fill=BOTH, padx=3, pady=2)
+            self.edit_frame_list.append(rdf)
+
+        center_window(self)
+
+    def _save_on_close(self):
+        for edit_frame, frame in zip(self.edit_frame_list, self.frame_list):
+            if self.description:
+                frame.description_entry.delete(1.0, END)
+                frame.description_entry.insert(1.0, edit_frame.text.get(1.0, END).rstrip())
+            else:
+                frame.regex_entry.delete(1.0, END)
+                frame.regex_entry.insert(1.0, edit_frame.text.get(1.0, END).rstrip())
+        self.destroy()
+
+
 class Window(Tk):
     VALUE_LIST = []
     REGEX_LIST = []
@@ -407,6 +477,7 @@ class Window(Tk):
         Tk.__init__(self)
         self.title('RegexSyntaxHighlighter')
         self.protocol('WM_DELETE_WINDOW', self._save_on_close)
+        self.state('zoomed')
 
         # ------------------------- WIDGETS ------------------------- #
         self.buttons_frame = Frame(self, **frame_config)
@@ -457,6 +528,8 @@ class Window(Tk):
     def add_new_regex_frame(self, event=None, regex='', description='', value=''):
         rf = RegexFrame(self.widget_frame, self._update, regex, description, value)
         rf.pack(side=TOP, fill=X, expand=True, pady=1)
+        rf.regex_entry.bind('<ButtonRelease-3>', self._r_click)
+        rf.description_entry.bind('<ButtonRelease-3>', self._r_click)
         self.FRAME_LIST.append(rf)
         self.VALUE_LIST.append(value)
         self.REGEX_LIST.append(value)
@@ -484,6 +557,29 @@ class Window(Tk):
                                                                  ).replace('/', '\\').rstrip('\\'))
         self.text_area.delete(1.0, END)
         self.text_area.insert(1.0, file.read().rstrip())
+
+    def _r_click(self, event: EventType = None):
+        def remove(e):
+            frame = e.widget.master
+            frame.regex_entry.delete(1.0, END)
+            frame.description_entry.delete(1.0, END)
+            frame.value_entry.delete(1.0, END)
+
+        description = False
+        if type(event.widget).__module__ == 'tkinter.scrolledtext':
+            description = True
+
+        r_click_menu = Menu(self, tearoff=0)
+        r_click_menu.add_command(label='Clear', command=lambda: event.widget.event_generate('<<Clear>>'))
+        r_click_menu.add_command(label='Copy', command=lambda: event.widget.event_generate('<<Copy>>'))
+        r_click_menu.add_command(label='Cut', command=lambda: event.widget.event_generate('<<Cut>>'))
+        r_click_menu.add_command(label='Edit in Separate Window', command=lambda: RegexAndDescriptionWindow(
+            self, self.FRAME_LIST, self.VALUE_LIST, description))
+        r_click_menu.add_command(label='Paste', command=lambda: event.widget.event_generate('<<Paste>>'))
+        r_click_menu.add_command(label='Remove', command=lambda: remove(event))
+        r_click_menu.add_command(label='Select All', command=lambda: event.widget.event_generate('<<SelectAll>>'))
+        r_click_menu.tk_popup(event.x_root, event.y_root, 0)
+        r_click_menu.grab_release()
 
     def _refresh(self, event=None):
         self._update()
