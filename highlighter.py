@@ -65,6 +65,7 @@ entry_config = {
     'insertbackground': 'white',
     'font': font
 }
+theme_num = 0
 
 
 def center_window(win: Tk or Toplevel):
@@ -162,7 +163,6 @@ class RegexFrame(Frame):
         # self.regex_entry.bind('<FocusOut>', updatefunc)
         self.bind('<FocusOut>', updatefunc)
         self.arg_configuration(config_args)
-        print(self.configuration_dict)
 
     def arg_configuration(self, config_args=''):
         config_args = config_args.split('|')
@@ -186,17 +186,21 @@ class RegexEditingFrame(LabelFrame):
 
 class RegexConfigEditingFrame(LabelFrame):
     def __init__(self, master, frame, configurations: dict, **kw):
+        global theme_num
+
         LabelFrame.__init__(self, master, **kw)
+        self.frame = frame
 
         self.bold_intvar = IntVar()
         self.italic_intvar = IntVar()
         self.underline_intvar = IntVar()
         self.overstrike_intvar = IntVar()
 
-        combostyle = ttk.Style()
-
-        combostyle.theme_create('combostyle', parent='alt', settings={'TCombobox': {'configure': combo_config}})
-        combostyle.theme_use('combostyle')
+        self.combostyle = ttk.Style()
+        self.combostyle.theme_create(f'combostyle{theme_num}', parent='alt',
+                                     settings={'TCombobox': {'configure': combo_config}})
+        self.combostyle.theme_use(f'combostyle{theme_num}')
+        theme_num += 1
 
         self.choose_font_combo = ttk.Combobox(self, text='Choose Font', font=font)
         self.choose_font_combo.option_add('*TCombobox*Listbox.background', '#040052')
@@ -259,6 +263,18 @@ class RegexConfigEditingFrame(LabelFrame):
         else:
             label.config(bg=color[-1])
 
+    def get_config_dict(self) -> dict:
+        return {
+            'size': self.font_size_entry.get(),
+            'family': self.choose_font_combo.get(),
+            'bold': self.bold_intvar.get(),
+            'italic': self.italic_intvar.get(),
+            'underline': self.underline_intvar.get(),
+            'overstrike': self.overstrike_intvar.get(),
+            'bg': self.bg_color['background'],
+            'fg': self.fg_color['background']
+        }
+
 
 class RegexTextArea(ScrolledText):
     TAB_LENGTH = 4
@@ -320,7 +336,7 @@ class RegexTextArea(ScrolledText):
     def create_regex(self):
         regex_list = []
         for regex, value in zip(self.regex_list, self.value_list):
-            regex_list.append(self._any(value, regex))
+            regex_list.append(self._any(value.rstrip().rstrip('\n'), regex))
         return '|'.join(regex_list)
 
     def config_regex_args(self):
@@ -630,9 +646,33 @@ class RegexAndDescriptionWindow(Toplevel):
 class RegexConfigurationWindow(Toplevel):
     def __init__(self, master, frame_list, value_list, **kw):
         Toplevel.__init__(self, master, **kw)
+        self.transient(master)
+        self.geometry('500x625')
+        self.resizable(False, False)
+
+        self.frame_list = frame_list
+        self.value_list = value_list
+        self.configuration_frame_list = []
+
+        self.frame = ScrollableFrame(self, **frame_config)
+        self.widget_frame = self.frame.widget_frame
+        self.frame.pack(side=TOP, fill=BOTH, expand=True)
+
+        self._insert_config_frames()
 
     def _insert_config_frames(self):
-        pass
+        for frame, value in zip(self.frame_list, self.value_list):
+            rcf = RegexConfigEditingFrame(self.widget_frame, frame, frame.configuration_dict, text=f' {value} ',
+                                          **label_frame_config)
+            rcf.pack(side=TOP, expand=True, fill=BOTH, padx=3, pady=2)
+            self.configuration_frame_list.append(rcf)
+
+        center_window(self)
+
+    def _save_on_close(self):
+        for config_frame in self.configuration_frame_list:
+            config_frame.frame.configuration_dict = config_frame.get_config_dict()
+        self.destroy()
 
 
 class Window(Tk):
@@ -737,7 +777,7 @@ class Window(Tk):
         self.text_area.delete(1.0, END)
         self.text_area.insert(1.0, file.read().rstrip())
 
-    def _r_click(self, event: EventType = None):
+    def _r_click(self, event: EventType):
         def remove(e):
             frame = e.widget.master
             frame.regex_entry.delete(1.0, END)
