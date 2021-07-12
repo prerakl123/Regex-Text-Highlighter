@@ -167,8 +167,13 @@ class RegexFrame(Frame):
     def arg_configuration(self, config_args=''):
         config_args = config_args.split('|')
         for expression in config_args:
-            exp_list = expression.split('=')
-            self.configuration_dict[exp_list[0]] = int(exp_list[1]) if exp_list[1].isnumeric() else str(exp_list[1])
+            try:
+                exp_list = expression.split('=')
+                self.configuration_dict[exp_list[0]] = int(exp_list[1]) if exp_list[1].isnumeric() else str(exp_list[1])
+            except IndexError or ValueError:
+                continue
+            else:
+                pass
 
 
 class RegexEditingFrame(LabelFrame):
@@ -276,19 +281,25 @@ class RegexConfigEditingFrame(LabelFrame):
         }
 
 
-class RegexTextArea(ScrolledText):
+class RegexTextArea(Text):
     TAB_LENGTH = 4
 
-    def __init__(self, master, value_list, regex_list, regex_config_args: dict, **kw):
-        ScrolledText.__init__(self, master, **kw)
+    def __init__(self, master, frame, value_list, regex_list, regex_config_args: dict, **kw):
+        Text.__init__(self, master, **kw)
 
         self.value_list = value_list
         self.regex_list = regex_list
         self.regex_config_args = regex_config_args
         self.textfilter = None
+        self.frame = frame
 
-        self.custom_tags = ['active_line', 'similar_selection']
+        self.custom_tags = [SEL, 'active_line', 'similar_selection']
+        self.user_tags = []
 
+        self.bind('<Control-z>', self.undo_event)
+        self.bind('<Control-Shift-Z>', self.redo_event)
+        self.bind('<Control-End>', self.on_control_end)
+        self.bind('<Control-Home>', self.on_control_home)
         self.bind('<KeyPress-BackSpace>', self.on_bkspace)
         self.bind('<KeyPress-braceleft>', lambda a: self.autocomplete(val='{'))
         self.bind('<KeyPress-braceright>', lambda a: self.autocomplete(val='}'))
@@ -301,11 +312,14 @@ class RegexTextArea(ScrolledText):
         self.bind('<KeyPress-parenright>', lambda a: self.autocomplete(val=')'))
         self.bind('<KeyPress-quoteright>', lambda a: self.autocomplete(val="'"))
         self.bind('<KeyPress-quotedbl>', lambda a: self.autocomplete(val='"'))
-        self.bind('<Return>', self.on_return)
+        self.bind('<Next>', self.on_page_down)
+        self.bind('<Prior>', self.on_page_up)
+        self.bind('<Return>', lambda _=None: [self.on_return(_), self.interior_config(_)])
+        self.bind('<<SelectNone>>', self.on_select_remove)
+        self.bind('<<Selection>>', self.on_select)
+        self.bind('<Tab>', self.on_tab)
 
-        self.config_regex_args()
         self.highlight_current_line()
-        self.apply_regex()
 
     def _any(self, name, alternates):
         """Return a named group pattern matching list of alternates."""
@@ -331,16 +345,67 @@ class RegexTextArea(ScrolledText):
         return '{}.{}'.format(srow, scol), '{}.{}'.format(lrow, lcol)
 
     def apply_regex(self):
+        del self.textfilter
+        tags = list(self.tag_names())
+        for i in self.custom_tags:
+            try:
+                tags.remove(i)
+            except ValueError:
+                continue
+        self.user_tags = tags
         self.textfilter = re.compile(self.create_regex(), re.S)
+        self.trigger()
 
     def create_regex(self):
         regex_list = []
         for regex, value in zip(self.regex_list, self.value_list):
-            regex_list.append(self._any(value.rstrip().rstrip('\n'), regex))
+            regex_list.append(self._any(value.rstrip(), [regex.rstrip()]))
         return '|'.join(regex_list)
 
-    def config_regex_args(self):
-        pass
+    def get_regex_config(self, _dict: dict):
+        for tag in self.value_list:
+            if _dict[tag.rstrip()] is not None:
+                bold, italic, underline, overstrike = '', '', '', ''
+                if self.regex_config_args[tag]['bold'] > 0:
+                    bold = 'bold'
+                if self.regex_config_args[tag]['italic'] > 0:
+                    italic = 'italic'
+                if self.regex_config_args[tag]['underline'] > 0:
+                    underline = 'underline'
+                if self.regex_config_args[tag]['overstrike'] > 0:
+                    overstrike = 'overstrike'
+                font_list = [self.regex_config_args[tag]['family'], self.regex_config_args[tag]['size'],
+                             bold, italic, underline, overstrike]
+                for _ in range(4):
+                    try:
+                        font_list.remove('')
+                    except ValueError:
+                        continue
+                return (
+                    tag.rstrip(), font_list, self.regex_config_args[tag]['bg'], self.regex_config_args[tag]['fg']
+                )
+        else:
+            return 'NILL', 'NILL', 'NILL', 'NILL'
+
+    def trigger(self, event=None):
+        val = self.get(1.0, END)
+        self.user_tags = []
+
+        for i in self.user_tags:
+            self.tag_remove(i, 1.0, END)
+
+        for i in self.textfilter.finditer(val):
+            _start = i.start()
+            _end = i.end() - 1
+            _tagtype, _font, _background, _foreground = self.get_regex_config(i.groupdict())
+            self.user_tags.append(_tagtype)
+            if _font != 'NILL':
+                ind1, ind2 = self._coordinate(_start, _end, val)
+                self.tag_add(_tagtype, ind1, ind2)
+                self.tag_config(_tagtype, font=_font, background=_background, foreground=_foreground,
+                                selectbackground='#264180')
+
+        return 'break'
 
     def autocomplete(self, val):
         if val == '(':
@@ -504,10 +569,35 @@ class RegexTextArea(ScrolledText):
         else:
             return
 
+    def redo_event(self, event=None):
+        self.event_generate('<<Redo>>')
+        return 'break'
+
+    def on_control_end(self, event=None):
+        self.frame.canvas.yview_moveto(1.0)
+
+    def on_control_home(self, event=None):
+        self.frame.canvas.yview_moveto(0.0)
+
+    def on_page_down(self, event=None):
+        shift_scroll = (event.state & 0x1) != 0
+        scroll = 1
+        if shift_scroll:
+            self.frame.canvas.xview_scroll(scroll, 'pages')
+        else:
+            self.frame.canvas.yview_scroll(scroll, 'pages')
+
+    def on_page_up(self, event=None):
+        shift_scroll = (event.state & 0x1) != 0
+        scroll = -1
+        if shift_scroll:
+            self.frame.canvas.xview_scroll(scroll, 'pages')
+        else:
+            self.frame.canvas.yview_scroll(scroll, 'pages')
+
     def on_return(self, event=None):
         prev_line = self.get(INSERT + ' linestart', INSERT)
         prev_indent = int(self.find_indent(prev_line, value=self.TAB_LENGTH)['spaces'])
-        # print('"' + prev_line + '"\n', prev_indent)
 
         if prev_line.rstrip('\t').rstrip(' ').endswith(':') and not prev_line.rstrip('\t').rstrip(' ').startswith('#'):
             self.insert(INSERT, '\n')
@@ -580,6 +670,41 @@ class RegexTextArea(ScrolledText):
             self.see(INSERT)
             return 'break'
 
+    def on_select(self, event=None):
+        if self.tag_ranges(SEL) == ():
+            self.tag_remove('similar_selection', 1.0, END)
+            return
+        selected_text_ind = [self.tag_ranges(SEL)[0], self.tag_ranges(SEL)[1]]
+        selected_text = self.get(selected_text_ind[0], selected_text_ind[1])
+        if selected_text.strip() in ['', ' ', '\t', '\n']:
+            return
+        self.tag_remove('similar_selection', 1.0, END)
+        start_pos = '1.0'
+        while True:
+            start_pos = self.search(selected_text, start_pos, nocase=False, exact=True, stopindex=END)
+            if not start_pos:
+                break
+            end_pos = "{}+{}c".format(start_pos, len(selected_text))
+            self.tag_add('similar_selection', start_pos, end_pos)
+            if start_pos == selected_text_ind[0]:
+                pass
+            else:
+                start_pos = end_pos
+        self.tag_config('similar_selection', background='gray20')
+        self.tag_remove('similar_selection', selected_text_ind[0], selected_text_ind[1])
+
+    def on_select_remove(self, event=None):
+        self.tag_remove('similar_selection', 1.0, END)
+
+    def on_tab(self, event):
+        self.insert(INSERT, ' ' * self.TAB_LENGTH)
+        return 'break'
+
+    def undo_event(self, event=None):
+        self.event_generate('<<Undo>>')
+        return 'break'
+
+
     def toggle_highlight(self, event=None):
         select = self.tag_ranges(SEL)
         if len(select) > 0:
@@ -598,10 +723,35 @@ class RegexTextArea(ScrolledText):
             self.tag_remove('active_line', 1.0, END)
             self.after(25, self.toggle_highlight)
 
+    def get_width(self) -> int:
+        end_ind = self.index(END).split('.')
+        max_len = 0
+        max_len_line = ''
+        for line in self.get(1.0, END).split('\n'):
+            if len(line) > max_len:
+                max_len = len(line)
+                max_len_line = line
+        if len(max_len_line) < 100:
+            return 150
+        return max_len + 10
+
+    def get_height(self) -> int:
+        last_line = int(self.index(END).split('.')[0])
+        return last_line + 10
+
+    def interior_config(self, event=None):
+        end_ind = self.index(END).split('.')
+        width = self.get_width()
+        height = self.get_height()
+        self.config(width=width, height=height)
+        self.frame.refresh()
+        return 'break'
+
     def refresh(self, value_list, regex_list):
         self.value_list = value_list
         self.regex_list = regex_list
         self.apply_regex()
+        self.interior_config()
 
 
 class RegexAndDescriptionWindow(Toplevel):
@@ -646,8 +796,9 @@ class RegexAndDescriptionWindow(Toplevel):
 class RegexConfigurationWindow(Toplevel):
     def __init__(self, master, frame_list, value_list, **kw):
         Toplevel.__init__(self, master, **kw)
+        self.protocol('WM_DELETE_WINDOW', self._save_on_close)
         self.transient(master)
-        self.geometry('500x625')
+        self.geometry('400x650')
         self.resizable(False, False)
 
         self.frame_list = frame_list
@@ -683,14 +834,16 @@ class Window(Tk):
     def __init__(self):
         Tk.__init__(self)
         self.title('RegexSyntaxHighlighter')
-        self.protocol('WM_DELETE_WINDOW', self._save_on_close)
+        self.protocol('WM_DELETE_WINDOW', self._save)
         self.state('zoomed')
 
         # ------------------------- WIDGETS ------------------------- #
         self.buttons_frame = Frame(self, **frame_config)
         self.frame = ScrollableFrame(self, text='Values, Regexes and Descriptions', **label_frame_config)
         self.widget_frame = self.frame.widget_frame
-        self.text_area_frame = LabelFrame(self, text='Text Area', **label_frame_config)
+        self.frame2 = ScrollableFrame(self, text='Text Area', **label_frame_config)
+        self.text_area_frame = self.frame2.widget_frame
+        self.text_frame = Frame(self.text_area_frame, **frame_config)
 
         self.refresh_btn = Button(self.buttons_frame, text='Refresh', font=font, command=self._refresh, relief=GROOVE,
                                   **button_config)
@@ -698,14 +851,15 @@ class Window(Tk):
                               relief=GROOVE, **button_config)
         self.open_file_btn = Button(self.buttons_frame, text='Open File', font=font, command=self._open_file,
                                     relief=GROOVE, **button_config)
-        self.text_area = RegexTextArea(self.text_area_frame, value_list=self.VALUE_LIST, regex_list=self.REGEX_LIST,
-                                       regex_config_args=self._extract_regex_config_args(), font=font, wrap=NONE,
-                                       **text_config)
+        self.text_area = RegexTextArea(self.text_frame, self.frame2, value_list=self.VALUE_LIST,
+                                       regex_list=self.REGEX_LIST, regex_config_args=dict(), font=font, wrap=NONE,
+                                       undo=1, relief=GROOVE, width=200, height=1000, **text_config)
 
         # --------------------- PACKING WIDGETS --------------------- #
         self.buttons_frame.pack(side=TOP, anchor=W, fill=X, padx=2, pady=2)
+        self.frame2.pack(side=RIGHT, fill=BOTH, expand=True)
+        self.text_frame.pack(side=TOP, fill=BOTH, expand=True)
         self.frame.pack(side=LEFT, fill=BOTH, expand=True, padx=3)
-        self.text_area_frame.pack(side=RIGHT, fill=BOTH, expand=True)
         self.refresh_btn.pack(side=LEFT, padx=1, pady=1)
         self.add_btn.pack(side=LEFT, padx=1, pady=1)
         self.open_file_btn.pack(side=LEFT, padx=1, pady=1)
@@ -731,17 +885,20 @@ class Window(Tk):
             self.open_file_btn.config(cursor=None, fg='#ffffff', bg='#040050')
         ])
 
+        self.bind('<F5>', self._refresh)
+        self.bind('<Control-s>', lambda _=None: self._save(_exit=False))
+
         with open('TEXT-History', 'r') as text_file:
             self.text_area.insert(1.0, text_file.read().rstrip())
 
-    def add_new_regex_frame(self, event=None, regex='', description='', value='', config_args=''):
+    def add_new_regex_frame(self, regex='', description='', value='', config_args=''):
         rf = RegexFrame(self.widget_frame, self._update, regex, description, value, config_args)
         rf.pack(side=TOP, fill=X, expand=True, pady=1)
         rf.regex_entry.bind('<ButtonRelease-3>', self._r_click)
         rf.description_entry.bind('<ButtonRelease-3>', self._r_click)
         self.FRAME_LIST.append(rf)
         self.VALUE_LIST.append(value)
-        self.REGEX_LIST.append(value)
+        self.REGEX_LIST.append(regex)
         self.frame.refresh()
 
     def load_all_regex(self) -> list:
@@ -761,9 +918,12 @@ class Window(Tk):
         """
         try:
             for reg, desc, val, config_args in args:
-                self.add_new_regex_frame(None, reg, desc, val, config_args)
+                self.add_new_regex_frame(reg, desc, val, config_args)
         except ValueError:
             pass
+        self.text_area.value_list = self.VALUE_LIST
+        self.text_area.regex_list = self.REGEX_LIST
+        self.text_area.regex_config_args = self._extract_regex_config_args()
 
     def _extract_regex_config_args(self) -> dict:
         return_dict = dict()
@@ -777,7 +937,7 @@ class Window(Tk):
         self.text_area.delete(1.0, END)
         self.text_area.insert(1.0, file.read().rstrip())
 
-    def _r_click(self, event: EventType):
+    def _r_click(self, event):
         def remove(e):
             frame = e.widget.master
             frame.regex_entry.delete(1.0, END)
@@ -811,14 +971,15 @@ class Window(Tk):
         self.buttons_frame.update_idletasks()
         self.update_idletasks()
         self.frame.refresh()
+        self.text_area.regex_config_args = self._extract_regex_config_args()
         self.text_area.refresh(value_list=self.VALUE_LIST, regex_list=self.REGEX_LIST)
 
-    def _save_on_close(self):
+    def _save(self, _exit: bool = True):
         line_list = []
         for frame in self.FRAME_LIST:
-            line_elements = [frame.regex_entry.get(1.0, END).rstrip('\n').rstrip(),
-                             frame.description_entry.get(1.0, END).rstrip('\n').rstrip(),
-                             frame.value_entry.get(1.0, END).rstrip('\n').rstrip()]
+            line_elements = [frame.regex_entry.get(1.0, END).rstrip(),
+                             frame.description_entry.get(1.0, END).rstrip(),
+                             frame.value_entry.get(1.0, END).rstrip()]
             config_dict_str = ''
             for tup in list(frame.configuration_dict.items()):
                 config_dict_str += '='.join([tup[0], str(tup[1])]) + '|'
@@ -833,7 +994,9 @@ class Window(Tk):
         with open('REGEX-History', 'w') as regex_file, open('TEXT-History', 'w') as text_file:
             regex_file.write(file + '\n')
             text_file.write(self.text_area.get(1.0, END) + '\n')
-        exit()
+        if _exit:
+            self.quit()
+            exit()
 
     def _update(self, event=None):
         for frame, i in zip(self.FRAME_LIST, [_int for _int in range(len(self.FRAME_LIST))]):
@@ -844,6 +1007,8 @@ class Window(Tk):
 def main():
     win = Window()
     win.set_regex_values(*win.load_all_regex())
+    win.after(2000, win._refresh)
+    win.wait_visibility(win.text_area)
     win.mainloop()
 
 
