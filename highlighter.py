@@ -95,13 +95,13 @@ class ScrollableFrame(LabelFrame):
 
         v_scroll.config(command=self.canvas.yview)
         h_scroll.config(command=self.canvas.xview)
-        self.canvas.config(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+        self.canvas.config(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set, yscrollincrement=1)
 
         v_scroll.pack(side=RIGHT, fill=Y)
         h_scroll.pack(side=BOTTOM, fill=X)
         self.canvas.pack(side=LEFT, expand=YES, fill=BOTH)
 
-        self.widget_frame = Frame(self.canvas, **frame_config)
+        self.widget_frame = Frame(self.canvas, **frame_config, highlightthickness=10, highlightbackground='pink')
         self.canvas.create_window(0, 0, window=self.widget_frame, anchor=NW)
 
         self.bind('<Configure>', self.on_interior_config)
@@ -125,12 +125,21 @@ class ScrollableFrame(LabelFrame):
     refresh = on_interior_config
 
     def on_mouse_wheel(self, event=None):
+        def _scroll(e=None):
+            nonlocal shift_scroll, scroll, scrolled
+            if scrolled == 105:
+                return
+            if shift_scroll:
+                self.canvas.xview_scroll(scroll, 'units')
+            else:
+                self.canvas.yview_scroll(scroll, 'units')
+            scrolled += 1
+            self.after(5, _scroll)
+
+        scrolled = 0
         shift_scroll = (event.state & 0x1) != 0
         scroll = -1 if event.delta > 0 else 1
-        if shift_scroll:
-            self.canvas.xview_scroll(scroll, 'units')
-        else:
-            self.canvas.yview_scroll(scroll, 'units')
+        _scroll()
 
     def on_enter(self, event=None):
         self.master.bind('<MouseWheel>', self.on_mouse_wheel)
@@ -213,6 +222,7 @@ class RegexConfigEditingFrame(LabelFrame):
         self.choose_font_combo.option_add('*TCombobox*Listbox.foreground', '#a8a8a8')
         self.choose_font_combo.option_add('*TCombobox*Listbox.selectBackground', '#264180')
         self.choose_font_combo.option_add('*TCombobox*Listbox.selectForeground', 'white')
+
         self.font_size_lbl = Label(self, text='Font Size', **label_config, width=18)
         self.font_size_entry = Entry(self, width=4, **entry_config)
         self.bold_checkbtn = Checkbutton(self, text='Bold', font=font.__add__(['bold']), **checkbtn_config,
@@ -252,7 +262,7 @@ class RegexConfigEditingFrame(LabelFrame):
         self.configure_configurations(configurations)
 
     def configure_configurations(self, configurations: dict):
-        self.font_size_entry.insert(0, configurations.get('size'))
+        self.font_size_entry.insert(END, configurations.get('size'))
         self.choose_font_combo.set(value=configurations.get('family'))
         self.bold_intvar.set(configurations.get('bold'))
         self.italic_intvar.set(configurations.get('italic'))
@@ -646,7 +656,7 @@ class RegexTextArea(Text):
                 self.see(INSERT)
             else:
                 self.insert(INSERT, '\n')
-                self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * (prev_indent))
+                self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * prev_indent)
                 self.see(INSERT)
             return 'break'
 
@@ -666,7 +676,7 @@ class RegexTextArea(Text):
 
         else:
             self.insert(INSERT, '\n')
-            self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * (prev_indent))
+            self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * prev_indent)
             self.see(INSERT)
             return 'break'
 
@@ -703,7 +713,6 @@ class RegexTextArea(Text):
     def undo_event(self, event=None):
         self.event_generate('<<Undo>>')
         return 'break'
-
 
     def toggle_highlight(self, event=None):
         select = self.tag_ranges(SEL)
@@ -906,8 +915,7 @@ class Window(Tk):
             regex_list = regex_read_file.readlines()
 
         for i in range(len(regex_list)):
-            regex_list[i] = ''.join([j for j in reversed(regex_list[i][-2::-1])])
-            regex_list[i] = regex_list[i].split('<===>')
+            regex_list[i] = ''.join([j for j in reversed(regex_list[i][-2::-1])]).split('<===>')
 
         return regex_list
 

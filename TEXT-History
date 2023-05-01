@@ -95,19 +95,19 @@ class ScrollableFrame(LabelFrame):
 
         v_scroll.config(command=self.canvas.yview)
         h_scroll.config(command=self.canvas.xview)
-        self.canvas.config(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
+        self.canvas.config(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set, yscrollincrement=1)
 
         v_scroll.pack(side=RIGHT, fill=Y)
         h_scroll.pack(side=BOTTOM, fill=X)
         self.canvas.pack(side=LEFT, expand=YES, fill=BOTH)
 
-        self.widget_frame = Frame(self.canvas, **frame_config)
+        self.widget_frame = Frame(self.canvas, **frame_config, highlightthickness=10, highlightbackground='pink')
         self.canvas.create_window(0, 0, window=self.widget_frame, anchor=NW)
 
         self.bind('<Configure>', self.on_interior_config)
         self.bind('<Enter>', self.on_enter)
         self.bind('<Leave>', self.on_leave)
-        
+
     @staticmethod
     def pack_multiple_widgets(*widgets, **kwargs):
         if len(kwargs.items()) < 1:
@@ -125,12 +125,21 @@ class ScrollableFrame(LabelFrame):
     refresh = on_interior_config
 
     def on_mouse_wheel(self, event=None):
+        def _scroll(e=None):
+            nonlocal shift_scroll, scroll, scrolled
+            if scrolled == 105:
+                return
+            if shift_scroll:
+                self.canvas.xview_scroll(scroll, 'units')
+            else:
+                self.canvas.yview_scroll(scroll, 'units')
+            scrolled += 1
+            self.after(5, _scroll)
+
+        scrolled = 0
         shift_scroll = (event.state & 0x1) != 0
         scroll = -1 if event.delta > 0 else 1
-        if shift_scroll:
-            self.canvas.xview_scroll(scroll, 'units')
-        else:
-            self.canvas.yview_scroll(scroll, 'units')
+        _scroll()
 
     def on_enter(self, event=None):
         self.master.bind('<MouseWheel>', self.on_mouse_wheel)
@@ -213,6 +222,7 @@ class RegexConfigEditingFrame(LabelFrame):
         self.choose_font_combo.option_add('*TCombobox*Listbox.foreground', '#a8a8a8')
         self.choose_font_combo.option_add('*TCombobox*Listbox.selectBackground', '#264180')
         self.choose_font_combo.option_add('*TCombobox*Listbox.selectForeground', 'white')
+
         self.font_size_lbl = Label(self, text='Font Size', **label_config, width=18)
         self.font_size_entry = Entry(self, width=4, **entry_config)
         self.bold_checkbtn = Checkbutton(self, text='Bold', font=font.__add__(['bold']), **checkbtn_config,
@@ -252,7 +262,7 @@ class RegexConfigEditingFrame(LabelFrame):
         self.configure_configurations(configurations)
 
     def configure_configurations(self, configurations: dict):
-        self.font_size_entry.insert(0, configurations.get('size'))
+        self.font_size_entry.insert(END, configurations.get('size'))
         self.choose_font_combo.set(value=configurations.get('family'))
         self.bold_intvar.set(configurations.get('bold'))
         self.italic_intvar.set(configurations.get('italic'))
@@ -281,20 +291,25 @@ class RegexConfigEditingFrame(LabelFrame):
         }
 
 
-class RegexTextArea(ScrolledText):
+class RegexTextArea(Text):
     TAB_LENGTH = 4
 
-    def __init__(self, master, value_list, regex_list, regex_config_args: dict, **kw):
-        ScrolledText.__init__(self, master, **kw)
+    def __init__(self, master, frame, value_list, regex_list, regex_config_args: dict, **kw):
+        Text.__init__(self, master, **kw)
 
         self.value_list = value_list
         self.regex_list = regex_list
         self.regex_config_args = regex_config_args
         self.textfilter = None
+        self.frame = frame
 
         self.custom_tags = [SEL, 'active_line', 'similar_selection']
         self.user_tags = []
 
+        self.bind('<Control-z>', self.undo_event)
+        self.bind('<Control-Shift-Z>', self.redo_event)
+        self.bind('<Control-End>', self.on_control_end)
+        self.bind('<Control-Home>', self.on_control_home)
         self.bind('<KeyPress-BackSpace>', self.on_bkspace)
         self.bind('<KeyPress-braceleft>', lambda a: self.autocomplete(val='{'))
         self.bind('<KeyPress-braceright>', lambda a: self.autocomplete(val='}'))
@@ -307,9 +322,12 @@ class RegexTextArea(ScrolledText):
         self.bind('<KeyPress-parenright>', lambda a: self.autocomplete(val=')'))
         self.bind('<KeyPress-quoteright>', lambda a: self.autocomplete(val="'"))
         self.bind('<KeyPress-quotedbl>', lambda a: self.autocomplete(val='"'))
-        self.bind('<Return>', self.on_return)
+        self.bind('<Next>', self.on_page_down)
+        self.bind('<Prior>', self.on_page_up)
+        self.bind('<Return>', lambda _=None: [self.on_return(_), self.interior_config(_)])
         self.bind('<<SelectNone>>', self.on_select_remove)
         self.bind('<<Selection>>', self.on_select)
+        self.bind('<Tab>', self.on_tab)
 
         self.highlight_current_line()
 
@@ -394,7 +412,8 @@ class RegexTextArea(ScrolledText):
             if _font != 'NILL':
                 ind1, ind2 = self._coordinate(_start, _end, val)
                 self.tag_add(_tagtype, ind1, ind2)
-                self.tag_config(_tagtype, font=_font, background=_background, foreground=_foreground)
+                self.tag_config(_tagtype, font=_font, background=_background, foreground=_foreground,
+                                selectbackground='#264180')
 
         return 'break'
 
@@ -560,6 +579,32 @@ class RegexTextArea(ScrolledText):
         else:
             return
 
+    def redo_event(self, event=None):
+        self.event_generate('<<Redo>>')
+        return 'break'
+
+    def on_control_end(self, event=None):
+        self.frame.canvas.yview_moveto(1.0)
+
+    def on_control_home(self, event=None):
+        self.frame.canvas.yview_moveto(0.0)
+
+    def on_page_down(self, event=None):
+        shift_scroll = (event.state & 0x1) != 0
+        scroll = 1
+        if shift_scroll:
+            self.frame.canvas.xview_scroll(scroll, 'pages')
+        else:
+            self.frame.canvas.yview_scroll(scroll, 'pages')
+
+    def on_page_up(self, event=None):
+        shift_scroll = (event.state & 0x1) != 0
+        scroll = -1
+        if shift_scroll:
+            self.frame.canvas.xview_scroll(scroll, 'pages')
+        else:
+            self.frame.canvas.yview_scroll(scroll, 'pages')
+
     def on_return(self, event=None):
         prev_line = self.get(INSERT + ' linestart', INSERT)
         prev_indent = int(self.find_indent(prev_line, value=self.TAB_LENGTH)['spaces'])
@@ -611,7 +656,7 @@ class RegexTextArea(ScrolledText):
                 self.see(INSERT)
             else:
                 self.insert(INSERT, '\n')
-                self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * (prev_indent))
+                self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * prev_indent)
                 self.see(INSERT)
             return 'break'
 
@@ -631,7 +676,7 @@ class RegexTextArea(ScrolledText):
 
         else:
             self.insert(INSERT, '\n')
-            self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * (prev_indent))
+            self.insert(f"{int(self.index(INSERT).split('.')[0])}.0", ' ' * prev_indent)
             self.see(INSERT)
             return 'break'
 
@@ -661,6 +706,14 @@ class RegexTextArea(ScrolledText):
     def on_select_remove(self, event=None):
         self.tag_remove('similar_selection', 1.0, END)
 
+    def on_tab(self, event):
+        self.insert(INSERT, ' ' * self.TAB_LENGTH)
+        return 'break'
+
+    def undo_event(self, event=None):
+        self.event_generate('<<Undo>>')
+        return 'break'
+
     def toggle_highlight(self, event=None):
         select = self.tag_ranges(SEL)
         if len(select) > 0:
@@ -679,10 +732,35 @@ class RegexTextArea(ScrolledText):
             self.tag_remove('active_line', 1.0, END)
             self.after(25, self.toggle_highlight)
 
+    def get_width(self) -> int:
+        end_ind = self.index(END).split('.')
+        max_len = 0
+        max_len_line = ''
+        for line in self.get(1.0, END).split('\n'):
+            if len(line) > max_len:
+                max_len = len(line)
+                max_len_line = line
+        if len(max_len_line) < 100:
+            return 150
+        return max_len + 10
+
+    def get_height(self) -> int:
+        last_line = int(self.index(END).split('.')[0])
+        return last_line + 10
+
+    def interior_config(self, event=None):
+        end_ind = self.index(END).split('.')
+        width = self.get_width()
+        height = self.get_height()
+        self.config(width=width, height=height)
+        self.frame.refresh()
+        return 'break'
+
     def refresh(self, value_list, regex_list):
         self.value_list = value_list
         self.regex_list = regex_list
         self.apply_regex()
+        self.interior_config()
 
 
 class RegexAndDescriptionWindow(Toplevel):
@@ -765,14 +843,16 @@ class Window(Tk):
     def __init__(self):
         Tk.__init__(self)
         self.title('RegexSyntaxHighlighter')
-        self.protocol('WM_DELETE_WINDOW', lambda: self._save(_exit=True))
+        self.protocol('WM_DELETE_WINDOW', self._save)
         self.state('zoomed')
 
         # ------------------------- WIDGETS ------------------------- #
         self.buttons_frame = Frame(self, **frame_config)
         self.frame = ScrollableFrame(self, text='Values, Regexes and Descriptions', **label_frame_config)
         self.widget_frame = self.frame.widget_frame
-        self.text_area_frame = LabelFrame(self, text='Text Area', **label_frame_config)
+        self.frame2 = ScrollableFrame(self, text='Text Area', **label_frame_config)
+        self.text_area_frame = self.frame2.widget_frame
+        self.text_frame = Frame(self.text_area_frame, **frame_config)
 
         self.refresh_btn = Button(self.buttons_frame, text='Refresh', font=font, command=self._refresh, relief=GROOVE,
                                   **button_config)
@@ -780,13 +860,15 @@ class Window(Tk):
                               relief=GROOVE, **button_config)
         self.open_file_btn = Button(self.buttons_frame, text='Open File', font=font, command=self._open_file,
                                     relief=GROOVE, **button_config)
-        self.text_area = RegexTextArea(self.text_area_frame, value_list=self.VALUE_LIST, regex_list=self.REGEX_LIST,
-                                       regex_config_args=dict(), font=font, wrap=NONE, **text_config)
+        self.text_area = RegexTextArea(self.text_frame, self.frame2, value_list=self.VALUE_LIST,
+                                       regex_list=self.REGEX_LIST, regex_config_args=dict(), font=font, wrap=NONE,
+                                       undo=1, relief=GROOVE, width=200, height=1000, **text_config)
 
         # --------------------- PACKING WIDGETS --------------------- #
         self.buttons_frame.pack(side=TOP, anchor=W, fill=X, padx=2, pady=2)
+        self.frame2.pack(side=RIGHT, fill=BOTH, expand=True)
+        self.text_frame.pack(side=TOP, fill=BOTH, expand=True)
         self.frame.pack(side=LEFT, fill=BOTH, expand=True, padx=3)
-        self.text_area_frame.pack(side=RIGHT, fill=BOTH, expand=True)
         self.refresh_btn.pack(side=LEFT, padx=1, pady=1)
         self.add_btn.pack(side=LEFT, padx=1, pady=1)
         self.open_file_btn.pack(side=LEFT, padx=1, pady=1)
@@ -833,8 +915,7 @@ class Window(Tk):
             regex_list = regex_read_file.readlines()
 
         for i in range(len(regex_list)):
-            regex_list[i] = ''.join([j for j in reversed(regex_list[i][-2::-1])])
-            regex_list[i] = regex_list[i].split('<===>')
+            regex_list[i] = ''.join([j for j in reversed(regex_list[i][-2::-1])]).split('<===>')
 
         return regex_list
 
@@ -901,7 +982,7 @@ class Window(Tk):
         self.text_area.regex_config_args = self._extract_regex_config_args()
         self.text_area.refresh(value_list=self.VALUE_LIST, regex_list=self.REGEX_LIST)
 
-    def _save(self, _exit: bool):
+    def _save(self, _exit: bool = True):
         line_list = []
         for frame in self.FRAME_LIST:
             line_elements = [frame.regex_entry.get(1.0, END).rstrip(),
@@ -922,6 +1003,7 @@ class Window(Tk):
             regex_file.write(file + '\n')
             text_file.write(self.text_area.get(1.0, END) + '\n')
         if _exit:
+            self.quit()
             exit()
 
     def _update(self, event=None):
@@ -933,23 +1015,11 @@ class Window(Tk):
 def main():
     win = Window()
     win.set_regex_values(*win.load_all_regex())
-    # win._refresh()
-    win.wait_window(win)
     win.after(2000, win._refresh)
+    win.wait_visibility(win.text_area)
     win.mainloop()
 
 
 if __name__ == '__main__':
     main()
-
-
-
-
-'''
-This is
-some
-multiline text
-'''
-
-'Whereas this is single line'
 
